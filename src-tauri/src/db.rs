@@ -264,6 +264,22 @@ impl Db {
                 manual          INTEGER NOT NULL DEFAULT 0,
                 updated_at      INTEGER NOT NULL
             );
+            -- Downloaded tracks (downloads.rs): one row per file this app saved from a YouTube
+            -- stream — where it landed, the tags it carries and the id it came from, so a row can
+            -- be badged "downloaded" and its bytes deleted with it. Like `local_playlists` this is
+            -- the user's own data, not a cache: nothing rebuilds it.
+            CREATE TABLE IF NOT EXISTS downloads (
+                video_id      TEXT PRIMARY KEY,
+                path          TEXT NOT NULL,
+                title         TEXT NOT NULL,
+                artist        TEXT NOT NULL,
+                album         TEXT NOT NULL,
+                duration_secs INTEGER NOT NULL,
+                cover         TEXT,
+                itag          INTEGER NOT NULL,
+                size_bytes    INTEGER NOT NULL,
+                created_at    INTEGER NOT NULL
+            );
             "#,
         )?;
         // Migrate pre-Phase-4 DBs that predate the loudness_db column. Errors ("duplicate column")
@@ -1320,6 +1336,85 @@ impl Db {
         out.sort_by(|a, b| order(a).cmp(&order(b)));
         out
     }
+
+    // --- downloads (downloads.rs) -------------------------------------------------------------
+
+    pub fn put_download(&self, d: &Download) {
+        let conn = self.0.lock().unwrap();
+        let _ = conn.execute(
+            "INSERT INTO downloads(video_id, path, title, artist, album, duration_secs, cover,
+                itag, size_bytes, created_at)
+             VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(video_id) DO UPDATE SET path = excluded.path, title = excluded.title,
+                artist = excluded.artist, album = excluded.album,
+                duration_secs = excluded.duration_secs, cover = excluded.cover,
+                itag = excluded.itag, size_bytes = excluded.size_bytes",
+            rusqlite::params![
+                d.video_id,
+                d.path,
+                d.title,
+                d.artist,
+                d.album,
+                d.duration_secs,
+                d.cover,
+                d.itag,
+                d.size_bytes,
+                d.created_at
+            ],
+        );
+    }
+
+    /// Everything downloaded, newest first.
+    pub fn downloads(&self) -> Vec<Download> {
+        let conn = self.0.lock().unwrap();
+        let mut out = Vec::new();
+        let row = |r: &rusqlite::Row| {
+            Ok(Download {
+                video_id: r.get(0)?,
+                path: r.get(1)?,
+                title: r.get(2)?,
+                artist: r.get(3)?,
+                album: r.get(4)?,
+                duration_secs: r.get(5)?,
+                cover: r.get(6)?,
+                itag: r.get(7)?,
+                size_bytes: r.get(8)?,
+                created_at: r.get(9)?,
+            })
+        };
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT video_id, path, title, artist, album, duration_secs, cover, itag, size_bytes,
+                created_at FROM downloads ORDER BY created_at DESC",
+        ) {
+            if let Ok(rows) = stmt.query_map([], row) {
+                out.extend(rows.flatten());
+            }
+        }
+        out
+    }
+
+    /// Every downloaded id, for badging rows without loading the whole table.
+    pub fn download_ids(&self) -> std::collections::HashSet<String> {
+        let conn = self.0.lock().unwrap();
+        let mut out = std::collections::HashSet::new();
+        if let Ok(mut stmt) = conn.prepare("SELECT video_id FROM downloads") {
+            if let Ok(rows) = stmt.query_map([], |r| r.get::<_, String>(0)) {
+                out.extend(rows.flatten());
+            }
+        }
+        out
+    }
+
+    /// Forget a download, handing back the file it pointed at so the caller can delete the bytes.
+    /// `None` when there was no row.
+    pub fn delete_download(&self, video_id: &str) -> Option<String> {
+        let conn = self.0.lock().unwrap();
+        let path: Option<String> = conn
+            .query_row("SELECT path FROM downloads WHERE video_id = ?1", [video_id], |r| r.get(0))
+            .ok();
+        let _ = conn.execute("DELETE FROM downloads WHERE video_id = ?1", [video_id]);
+        path
+    }
 }
 
 /// Every row of a query, mapped; empty when it fails. The stats read best-effort, like the rest.
@@ -1420,6 +1515,25 @@ pub struct LocalTrack {
     /// Absolute path to the cover image (extracted or found next to the files).
     pub cover: Option<String>,
     pub mtime: i64,
+}
+
+/// One downloaded track: the file `downloads.rs` wrote, and the YouTube id it came from. Unlike
+/// [`LocalTrack`] this is the app's own record of what it saved — the tags in the file are the
+/// library's copy, this is what the Downloads view and the badge read.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Download {
+    pub video_id: String,
+    pub path: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub duration_secs: i64,
+    /// Absolute path to the embedded cover, when there was one to fetch.
+    pub cover: Option<String>,
+    pub itag: i64,
+    pub size_bytes: i64,
+    pub created_at: i64,
 }
 
 /// A playlist kept on this machine, as the library grid and the playlist header need it.

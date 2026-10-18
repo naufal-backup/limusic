@@ -139,6 +139,7 @@
 		"saved_accounts_hint": "Pick a saved account to switch to it.",
 		"history": "History",
 		"stats": "Stats",
+		"downloads": "Downloads",
 		"no_channels": "YouTube did not return any selectable channels."
 	},
 	"player": {
@@ -184,6 +185,7 @@
 		"go_to_album": "Go to album",
 		"start_radio": "Start radio",
 		"share": "Share",
+		"download": "Download",
 		"edit_scrobble": "Edit scrobble",
 		"not_playing": "Not playing",
 		"history": "History",
@@ -1276,5 +1278,28 @@
 			"not_found": "Couldn’t find that on YouTube Music.",
 			"cooldown": "YouTube Music asked Limusic to slow down, so imports are paused until {time}. Everything found so far is saved."
 		}
+	},
+	"downloads": {
+		"downloaded": "Downloaded",
+		"title": "Downloads",
+		"open_folder": "Open folder",
+		"change_folder": "Change folder",
+		"pick_folder": "Choose a folder for downloads",
+		"folder_set": "Downloads will go here",
+		"already": "That track is already downloaded.",
+		"empty": "Nothing downloaded yet. Use a track’s menu to save it here.",
+		"hint": "Files are saved on this device and play like any other track. YouTube Music is only asked for the audio.",
+		"in_progress": "Downloading {done} of {total}",
+		"finished": "Finished {done} of {total}",
+		"cancel": "Stop",
+		"dismiss": "Dismiss",
+		"remove": "Delete from disk",
+		"queued": "Waiting",
+		"downloading": "Downloading…",
+		"done": "Done",
+		"cancelled": "Stopped",
+		"status_failed": "Failed",
+		"failed_count": "Couldn’t download {count}.",
+		"on_disk": "On this device ({count})"
 	}
 }

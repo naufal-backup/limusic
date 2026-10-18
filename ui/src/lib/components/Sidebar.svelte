@@ -18,7 +18,8 @@
 		SquareArrowLeft01Icon,
 		SquareArrowRight01Icon,
 		SpotifyIcon,
-		Chart02Icon
+		Chart02Icon,
+		Download04Icon
 	} from '@hugeicons/core-free-icons';
 	import { toggleMode } from 'mode-watcher';
 	import { Button } from '$lib/components/ui/button';
@@ -29,6 +30,7 @@
 	import { mergeSaved, orderLibrary } from '$lib/personal';
 	import { t } from '$lib/i18n.svelte';
 	import { imp } from '$lib/import.svelte';
+	import { dl, openDownloads } from '$lib/downloads.svelte';
 
 	const nav = $derived([
 		{ href: '/', label: t('nav.home'), icon: Home01Icon },
@@ -177,6 +179,31 @@
 				class="h-5 w-5 shrink-0"
 			/>
 			<span class="hidden {wide('lg:inline')}">{t('nav.settings')}</span>
+		</button>
+		<!-- The downloads list and any job running in the background, in the same shape as the rest
+		     of the rail: a count when there is one, a live dot while something is downloading. -->
+		<button
+			onclick={openDownloads}
+			title={t('nav.downloads')}
+			class="group flex items-center justify-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-foreground {wide(
+				'lg:justify-start'
+			)}"
+		>
+			<span class="relative shrink-0">
+				<HugeiconsIcon
+					icon={Download04Icon}
+					class="h-5 w-5"
+				/>
+				{#if dl.job?.running}
+					<span class="absolute -right-0.5 -top-0.5 h-2 w-2 animate-pulse rounded-full bg-primary"></span>
+				{/if}
+			</span>
+			<span class="hidden {wide('lg:inline')}">{t('nav.downloads')}</span>
+			{#if dl.list.length}
+				<span class="hidden text-xs font-normal text-muted-foreground {wide('lg:inline')}">
+					{dl.list.length}
+				</span>
+			{/if}
 		</button>
 	</nav>
 

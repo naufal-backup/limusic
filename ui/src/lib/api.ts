@@ -866,6 +866,56 @@ export const addLocalFolder = (path: string) => invoke<LocalLibrary>('add_local_
 export const removeLocalFolder = (path: string) =>
 	invoke<LocalLibrary>('remove_local_folder', { path });
 
+// --- downloads (downloads.rs) ----------------------------------------------------------------
+/** One track in the download job, as the Downloads view draws it. */
+export interface DownloadItem {
+	videoId: string;
+	title: string;
+	artists: string;
+	thumbnail?: string | null;
+	status: 'queued' | 'active' | 'done' | 'failed' | 'cancelled';
+	/** 0..1 for the active row; 1 once done. */
+	progress: number;
+	error?: string | null;
+}
+
+/** The download job: its rows and how far along it is. `null` when there is no job. */
+export interface DownloadSnapshot {
+	items: DownloadItem[];
+	running: boolean;
+	done: number;
+	failed: number;
+}
+
+/** A track saved to disk, as the Downloads list and the "downloaded" badge read it. */
+export interface DownloadRecord {
+	videoId: string;
+	path: string;
+	title: string;
+	artist: string;
+	album: string;
+	durationSecs: number;
+	cover?: string | null;
+	itag: number;
+	sizeBytes: number;
+	createdAt: number;
+}
+
+/** Queue songs for download. Local files and ones already on disk are ignored; a running job is
+ *  appended to rather than raced. */
+export const downloadTracks = (songs: SongItem[]) =>
+	invoke<DownloadSnapshot>('download_tracks', { songs });
+export const downloadStatus = () => invoke<DownloadSnapshot | null>('download_status');
+/** Stop the running job, or put a finished one away. */
+export const cancelDownloads = () => invoke<void>('cancel_downloads');
+export const getDownloads = () => invoke<DownloadRecord[]>('get_downloads');
+/** Delete one download: its row and its file. Returns the list as it stands after. */
+export const removeDownload = (videoId: string) =>
+	invoke<DownloadRecord[]>('remove_download', { videoId });
+export const getDownloadDir = () => invoke<string>('get_download_dir');
+export const setDownloadDir = (path: string) => invoke<string>('set_download_dir', { path });
+export const openDownloadDir = () => invoke<void>('open_download_dir');
+
 // --- blocked artists (blocked.rs, plan 046) ---------------------------------------------------
 /** One entry in the block list. `id` is the channel browseId when the blocked row linked one. */
 export interface BlockedArtist {
@@ -1090,6 +1140,9 @@ export const onCoverError = (cb: (msg: string) => void): Promise<UnlistenFn> =>
 	listen<{ message: string }>('cover-error', (e) => cb(e.payload.message));
 export const onImportProgress = (cb: (s: ImportSnapshot) => void): Promise<UnlistenFn> =>
 	listen<ImportSnapshot>('import-progress', (e) => cb(e.payload));
+/** The download job moved (or was put away, which arrives as `null`). */
+export const onDownloadProgress = (cb: (s: DownloadSnapshot | null) => void): Promise<UnlistenFn> =>
+	listen<DownloadSnapshot | null>('download-progress', (e) => cb(e.payload));
 export const onAuthChanged = (cb: (a: Account) => void): Promise<UnlistenFn> =>
 	listen<Account>('auth-changed', (e) => cb(e.payload));
 export const onAccountSelectionRequired = (cb: () => void): Promise<UnlistenFn> =>

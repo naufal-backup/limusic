@@ -1186,6 +1186,7 @@ export const ui = $state({
 	toast: null as Toast | null,
 	settingsOpen: false, // the settings modal
 	settingsFocus: null as 'lyrics' | 'scrobbling' | null, // a section to open settings on, once
+	downloadsOpen: false, // the downloads modal (downloads.svelte.ts)
 	scrobbleTrack: null as SongItem | null, // "Edit scrobble" from a track menu: the track to edit
 	ltOpen: false, // the Listen Together modal
 	linkOpen: false, // the "open a pasted link" modal

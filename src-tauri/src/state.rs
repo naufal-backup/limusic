@@ -596,7 +596,7 @@ impl AppState {
         }
     }
 
-    fn quality(&self) -> AudioQuality {
+    pub(crate) fn quality(&self) -> AudioQuality {
         match self.db.get_setting("quality").as_deref() {
             Some("LOW") => AudioQuality::Low,
             Some("AUTO") => AudioQuality::Auto,
@@ -1254,7 +1254,7 @@ impl AppState {
         }
         let data = self
             .orchestrator
-            .resolve(video_id, is_upload, self.quality(), &self.disabled_clients())
+            .resolve(video_id, is_upload, self.quality(), &self.disabled_clients(), false)
             .await?;
         // Never cache rustypipe URLs: googlevideo serves them only for bounded-Range requests,
         // which mpv doesn't send → LOADING_FAILED(-13). Caching one poisons the videoId for ~6h.

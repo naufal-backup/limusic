@@ -233,6 +233,19 @@ pub enum AudioQuality {
 /// adaptive audio: a podcast added to the library by RSS feed is not hosted by YouTube, and WEB_REMIX
 /// answers with one progressive `audio/mpeg` entry pointing at the feed's own enclosure (#294).
 pub fn find_format(data: &StreamingData, quality: AudioQuality) -> Option<&Format> {
+    find_format_preferring(data, quality, false)
+}
+
+/// [`find_format`], but `prefer_mp4` sorts the MP4/AAC container (`m4a`) ahead of Opus-in-WebM at the
+/// same quality. Only the download path asks for it: a saved file is tagged and played by other
+/// software, and MP4 carries an `ilst` every tagger and phone understands, while YouTube's Opus
+/// arrives in a WebM container that neither lofty can tag nor most players open. Streaming keeps
+/// taking whatever sounds best, so playback is untouched by this.
+pub fn find_format_preferring(
+    data: &StreamingData,
+    quality: AudioQuality,
+    prefer_mp4: bool,
+) -> Option<&Format> {
     let mut audio: Vec<&Format> = data.adaptive_formats.iter().filter(|f| f.is_audio()).collect();
     if audio.is_empty() {
         audio = data.formats.iter().flatten().filter(|f| f.is_audio()).collect();
@@ -244,21 +257,32 @@ pub fn find_format(data: &StreamingData, quality: AudioQuality) -> Option<&Forma
     // before anything else: a dub is never the better stream, at any bitrate.
     let original: Vec<&Format> = audio.iter().copied().filter(|f| f.is_original()).collect();
     let audio = if original.is_empty() { audio } else { original };
+    // MP4/AAC scores 1 and Opus 2 in `codec_score` (Opus is the better stream for playback). A
+    // download lifts MP4 above it instead of dropping Opus, so a track that has no AAC still
+    // downloads as Opus rather than not at all.
+    let codec = |f: &Format| match (prefer_mp4, f.codec_score()) {
+        (true, 1) => 3,
+        (_, s) => s,
+    };
     match quality {
         AudioQuality::High | AudioQuality::Auto => audio.into_iter().max_by(|a, b| {
             a.quality_rank()
                 .cmp(&b.quality_rank())
                 .then(a.audio_channels.unwrap_or(2).cmp(&b.audio_channels.unwrap_or(2)))
-                .then(a.codec_score().cmp(&b.codec_score()))
+                .then(codec(a).cmp(&codec(b)))
                 .then(a.bitrate.cmp(&b.bitrate))
         }),
         AudioQuality::Low => {
             let capped: Vec<&&Format> = audio.iter().filter(|f| f.bitrate <= 128_000).collect();
             let pool = if capped.is_empty() { audio.iter().collect() } else { capped };
-            // Prefer original (non-dubbed), then highest bitrate under the cap.
+            // Prefer original (non-dubbed), then highest bitrate under the cap, then — for a
+            // download — the taggable container when two streams sit at the same rate.
             pool.into_iter()
                 .max_by(|a, b| {
-                    a.is_original().cmp(&b.is_original()).then(a.bitrate.cmp(&b.bitrate))
+                    a.is_original()
+                        .cmp(&b.is_original())
+                        .then(a.bitrate.cmp(&b.bitrate))
+                        .then(codec(a).cmp(&codec(b)))
                 })
                 .copied()
         }
@@ -375,6 +399,45 @@ mod tests {
         let sd = serde_json::from_str::<PlayerResponse>(json).unwrap().streaming_data.unwrap();
         assert_eq!(find_format(&sd, AudioQuality::High).unwrap().url.as_deref(), Some("en"));
         assert_eq!(find_format(&sd, AudioQuality::Low).unwrap().url.as_deref(), Some("en"));
+    }
+
+    /// The download path (`prefer_mp4`) takes the MP4/AAC container over Opus at the same quality,
+    /// because a saved file has to be taggable and open elsewhere; playback (`prefer_mp4 = false`)
+    /// is unchanged and keeps Opus. A track with no AAC still downloads (as Opus), never nothing.
+    #[test]
+    fn find_format_preferring_takes_the_taggable_container() {
+        let json = r#"{
+            "playabilityStatus": { "status": "OK" },
+            "streamingData": { "adaptiveFormats": [
+                { "itag": 251, "url": "opus", "mimeType": "audio/webm; codecs=\"opus\"", "bitrate": 141210, "audioQuality": "AUDIO_QUALITY_HIGH" },
+                { "itag": 140, "url": "aac", "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 129000, "audioQuality": "AUDIO_QUALITY_HIGH" }
+            ] }
+        }"#;
+        let sd = serde_json::from_str::<PlayerResponse>(json).unwrap().streaming_data.unwrap();
+        assert_eq!(find_format_preferring(&sd, AudioQuality::High, false).unwrap().itag, 251);
+        assert_eq!(find_format_preferring(&sd, AudioQuality::High, true).unwrap().itag, 140);
+
+        // At Low the cap makes bitrate the sort key; the container only breaks a tie.
+        let low = r#"{
+            "playabilityStatus": { "status": "OK" },
+            "streamingData": { "adaptiveFormats": [
+                { "itag": 250, "url": "opus", "mimeType": "audio/webm; codecs=\"opus\"", "bitrate": 128000, "audioQuality": "AUDIO_QUALITY_LOW" },
+                { "itag": 139, "url": "aac", "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"", "bitrate": 128000, "audioQuality": "AUDIO_QUALITY_LOW" }
+            ] }
+        }"#;
+        let sd = serde_json::from_str::<PlayerResponse>(low).unwrap().streaming_data.unwrap();
+        assert_eq!(find_format_preferring(&sd, AudioQuality::Low, false).unwrap().itag, 250);
+        assert_eq!(find_format_preferring(&sd, AudioQuality::Low, true).unwrap().itag, 139);
+
+        // No AAC on offer: the download still takes the Opus stream rather than failing.
+        let only_opus = r#"{
+            "playabilityStatus": { "status": "OK" },
+            "streamingData": { "adaptiveFormats": [
+                { "itag": 251, "url": "opus", "mimeType": "audio/webm; codecs=\"opus\"", "bitrate": 141210, "audioQuality": "AUDIO_QUALITY_HIGH" }
+            ] }
+        }"#;
+        let sd = serde_json::from_str::<PlayerResponse>(only_opus).unwrap().streaming_data.unwrap();
+        assert_eq!(find_format_preferring(&sd, AudioQuality::High, true).unwrap().itag, 251);
     }
 
     /// An RSS-feed podcast episode (#294): no adaptive formats, only the feed's own mp3 as a

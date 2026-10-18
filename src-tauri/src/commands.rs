@@ -2293,6 +2293,70 @@ async fn scan_local(state: &Arc<AppState>) -> Result<crate::local::LocalLibrary,
     Ok(lib)
 }
 
+// --- downloads (downloads.rs) ------------------------------------------------------------------
+
+/// Queue `songs` for download and hand back the job as it stands. Local files and tracks already
+/// on disk are ignored, and a second call while a job is running appends to it rather than racing.
+#[tauri::command]
+pub async fn download_tracks(
+    state: St<'_>,
+    songs: Vec<SongItem>,
+) -> Result<crate::downloads::Snapshot, String> {
+    Ok(crate::downloads::start(state.inner(), songs))
+}
+
+/// The running or finished job, or `None` when there is none. The Downloads view polls this once on
+/// open to pick up a job that was already under way (the webview reloaded, Rust kept going).
+#[tauri::command]
+pub async fn download_status() -> Result<Option<crate::downloads::Snapshot>, String> {
+    Ok(crate::downloads::status())
+}
+
+/// Stop the running job, or put a finished one away.
+#[tauri::command]
+pub async fn cancel_downloads(state: St<'_>) -> Result<(), String> {
+    crate::downloads::cancel(state.inner());
+    Ok(())
+}
+
+/// Everything downloaded, newest first — the Downloads view, and the ids the row badge reads.
+#[tauri::command]
+pub async fn get_downloads(state: St<'_>) -> Result<Vec<crate::db::Download>, String> {
+    Ok(state.db.downloads())
+}
+
+/// Delete one download: its row and its bytes. Returns the list as it stands after.
+#[tauri::command]
+pub async fn remove_download(
+    state: St<'_>,
+    video_id: String,
+) -> Result<Vec<crate::db::Download>, String> {
+    crate::downloads::remove(state.inner(), &video_id);
+    Ok(state.db.downloads())
+}
+
+/// The folder downloads land in, created if it isn't there yet so "Open folder" always has one.
+#[tauri::command]
+pub async fn get_download_dir(state: St<'_>) -> Result<String, String> {
+    let dir = crate::downloads::dir(&state.app, &state.db);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
+/// Point downloads at another folder. Persisted; the next track lands there, nothing moves.
+#[tauri::command]
+pub async fn set_download_dir(state: St<'_>, path: String) -> Result<String, String> {
+    crate::downloads::usable_dir(&path)?;
+    state.db.set_setting("download_dir", path.trim());
+    Ok(path)
+}
+
+#[tauri::command]
+pub async fn open_download_dir(state: St<'_>) -> Result<(), String> {
+    let dir = crate::downloads::dir(&state.app, &state.db);
+    crate::downloads::open_dir(&dir)
+}
+
 // --- Listen Together (context/19) ----------------------------------------------------------
 
 /// Current client-side LT state (status, role, room, participants, pending joins, suggestions).

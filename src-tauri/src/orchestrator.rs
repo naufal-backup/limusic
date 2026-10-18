@@ -13,8 +13,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use innertube::{
-    find_format, find_video_format, rustypipe_fallback, AudioQuality, Clients, Format, InnerTube,
-    PlayerResponse, StreamingData, YouTubeClient, MAIN_CLIENT, STREAM_FALLBACK_ORDER,
+    find_format_preferring, find_video_format, rustypipe_fallback, AudioQuality, Clients, Format,
+    InnerTube, PlayerResponse, StreamingData, YouTubeClient, MAIN_CLIENT, STREAM_FALLBACK_ORDER,
     UPLOAD_FALLBACK_ORDER,
 };
 use tokio::sync::Mutex;
@@ -206,12 +206,17 @@ impl Orchestrator {
     }
 
     /// Resolve a videoId to a playable stream. context/06 full algorithm.
+    ///
+    /// `prefer_mp4` is the download path's one deviation: it asks for the MP4/AAC container so the
+    /// saved file can be tagged and opened anywhere, where Opus-in-WebM cannot (see
+    /// `find_format_preferring`). Playback always passes `false`.
     pub async fn resolve(
         &self,
         video_id: &str,
         is_upload: bool,
         quality: AudioQuality,
         disabled: &HashSet<String>,
+        prefer_mp4: bool,
     ) -> Result<PlaybackData, ResolveError> {
         let prefer_high = matches!(quality, AudioQuality::High | AudioQuality::Auto);
         let logged_in = self.it.is_logged_in();
@@ -380,7 +385,7 @@ impl Orchestrator {
 
             let Some(streaming) = resp.streaming_data.as_ref() else { continue };
             let Some(expires) = streaming.expires_in_seconds else { continue };
-            let Some(format) = find_format(streaming, quality) else { continue };
+            let Some(format) = find_format_preferring(streaming, quality, prefer_mp4) else { continue };
             if audio_config_loudness.is_none() {
                 audio_config_loudness = main_loudness(&resp);
             }

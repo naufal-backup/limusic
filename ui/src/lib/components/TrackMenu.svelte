@@ -25,7 +25,8 @@
 		DashboardSquare02Icon,
 		Share08Icon,
 		PreferenceVerticalIcon,
-		PencilEdit02Icon
+		PencilEdit02Icon,
+		Download04Icon
 	} from '@hugeicons/core-free-icons';
 	import * as api from '$lib/api';
 	import type { SongItem } from '$lib/api';
@@ -57,6 +58,7 @@
 	import { listenbrainz } from '$lib/listenbrainz.svelte';
 	import { lt } from '$lib/lt.svelte';
 	import { t } from '$lib/i18n.svelte';
+	import { download, isDownloaded } from '$lib/downloads.svelte';
 	import { invalidateCachedPrefix } from '$lib/pagecache';
 	import TempoPitchDialog from './TempoPitchDialog.svelte';
 
@@ -145,6 +147,9 @@
 	// "Remove from this playlist", for a row playing out of a playlist (issue #270). What the three
 	// conditions are and why is in `removableFromPlaylist` (queue.ts), where they are checkable.
 	const removable = $derived(removableFromPlaylist(song, playlistId, savedIn.map));
+	// Already saved to this disk: the item says so instead of queueing a second copy (the store
+	// would refuse it anyway, this only makes that visible).
+	const downloaded = $derived(isDownloaded(song.video_id));
 
 	// "Play next" on a track that is already coming up in the queue moves it into the Play next block
 	// rather than queueing a second copy. A row the user queued, the backend moves by itself
@@ -377,6 +382,21 @@
 					)}
 			>
 				<HugeiconsIcon icon={Share08Icon} class="h-4 w-4" /> {t('player.share')}
+			</button>
+		{/if}
+		<!-- A local file is already on this disk, and a downloaded one has its own list: this saves
+		     the track to the downloads folder (Rust writes the tags; the Downloads dialog shows it).
+		     `altIcon`/`showAlt` rather than a ternary, as elsewhere: the icon freezes at mount. -->
+		{#if !isLocal}
+			<button
+				class="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-accent/10"
+				onclick={(e) => run(e, () => download([song]))}
+			>
+				<HugeiconsIcon
+					icon={Download04Icon}
+					class="h-4 w-4 {downloaded ? 'text-primary' : ''}"
+				/>
+				{downloaded ? t('downloads.downloaded') : t('player.download')}
 			</button>
 		{/if}
 		<!-- #404: fix how this track scrobbles, for good. Opens the Scrobbling tab on it, where the
