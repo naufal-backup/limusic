@@ -649,10 +649,9 @@ fn parse_duration(s: Option<&str>) -> i64 {
 // --- the user's own files --------------------------------------------------------------------------
 
 /// Delete one download: the row and the bytes. The cover copy goes with it when it is ours.
-pub fn remove(state: &Arc<AppState>, video_id: &str) {
-    let cover =
-        state.db.downloads().into_iter().find(|d| d.video_id == video_id).and_then(|d| d.cover);
-    if let Some(path) = state.db.delete_download(video_id) {
+pub fn remove(db: &crate::db::Db, video_id: &str) {
+    let cover = db.downloads().into_iter().find(|d| d.video_id == video_id).and_then(|d| d.cover);
+    if let Some(path) = db.delete_download(video_id) {
         let _ = std::fs::remove_file(&path);
         // An empty Artist/Album left behind would show up as an album in Local Music.
         if let Some(dir) = Path::new(&path).parent() {
@@ -663,6 +662,90 @@ pub fn remove(state: &Arc<AppState>, video_id: &str) {
         if Path::new(&cover).file_name().is_some_and(|n| n.to_string_lossy().starts_with("dl-")) {
             let _ = std::fs::remove_file(cover);
         }
+    }
+}
+
+/// Move everything already saved into `new_root`, keeping each file's `Artist/Album/Title` place,
+/// and point its row at the new path — so changing the download folder takes the library along
+/// instead of leaving it in a folder the app no longer looks at. Best-effort per track: one that
+/// cannot be moved keeps the row it had (a row pointing at a missing file would break playback, and
+/// a half-moved library is worse than one that stayed put). Returns how many files actually moved.
+pub fn move_all(db: &crate::db::Db, old_root: &Path, new_root: &Path) -> usize {
+    let mut moved = 0;
+    for d in db.downloads() {
+        let src = PathBuf::from(&d.path);
+        if !src.is_file() {
+            continue;
+        }
+        // Keep the file's own place under the old root, so a name that was arranged by hand
+        // survives the move untouched.
+        let dst = match src.strip_prefix(old_root).ok().filter(|r| !r.as_os_str().is_empty()) {
+            Some(rel) => new_root.join(rel),
+            // Outside the folder the setting named — an older build, a hand-edited setting, a file
+            // moved in from elsewhere. Lay it out the way a fresh download would rather than
+            // flattening it into the root and losing its artist in the process.
+            None => canonical_target(db, new_root, &d, &src),
+        };
+        if dst == src {
+            continue;
+        }
+        let dst = if dst.exists() { unique_path(&dst) } else { dst };
+        if dst.parent().is_none_or(|p| std::fs::create_dir_all(p).is_err()) {
+            continue;
+        }
+        if std::fs::rename(&src, &dst).is_err() {
+            continue;
+        }
+        // The old album/artist, now empty, would linger as an empty album in Local Music.
+        if let Some(dir) = src.parent() {
+            let _ = std::fs::remove_dir(dir);
+        }
+        db.put_download(&Download { path: dst.to_string_lossy().to_string(), ..d });
+        moved += 1;
+    }
+    moved
+}
+
+/// Where a row's bytes belong under `root`, named the way `download_one` would have named them:
+/// `Artist/Album/Title.ext`, or `Artist - Title.ext` for a container lofty cannot tag. The
+/// extension comes from the file on disk, since the row does not carry it.
+fn canonical_target(db: &crate::db::Db, root: &Path, d: &Download, src: &Path) -> PathBuf {
+    let name = |src: &Path| root.join(src.file_name().unwrap_or_default());
+    let Some(ext) = src.extension().map(|e| e.to_string_lossy().to_ascii_lowercase()) else {
+        return name(src);
+    };
+    if ext.is_empty() {
+        return name(src);
+    }
+    let untagged = tag_type_for(&ext).is_none();
+    unique_target(
+        db,
+        root.to_path_buf(),
+        &d.artist,
+        &d.album,
+        &d.title,
+        &ext,
+        untagged,
+        &d.video_id,
+    )
+}
+
+/// `Song.m4a` → `Song (2).m4a` …, so a move never overwrites a file already at the destination.
+fn unique_path(path: &Path) -> PathBuf {
+    let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+    let ext = path.extension().map(|s| s.to_string_lossy().to_string());
+    let dir = path.parent().unwrap_or(Path::new(""));
+    let mut n = 2;
+    loop {
+        let name = match &ext {
+            Some(ext) => format!("{stem} ({n}).{ext}"),
+            None => format!("{stem} ({n})"),
+        };
+        let candidate = dir.join(name);
+        if !candidate.exists() {
+            return candidate;
+        }
+        n += 1;
     }
 }
 
@@ -703,4 +786,138 @@ pub fn open_dir(path: &Path) -> Result<(), String> {
         }
     };
     spawned.map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::{Db, Download};
+
+    fn db() -> Db {
+        Db::open(Path::new(":memory:")).unwrap()
+    }
+
+    /// A scratch directory under the system temp dir, emptied first so a re-run starts clean.
+    fn scratch(tag: &str) -> PathBuf {
+        let p =
+            std::env::temp_dir().join(format!("limusic-downloads-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&p);
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    fn row(video_id: &str, path: &Path, cover: Option<&Path>) -> Download {
+        Download {
+            video_id: video_id.into(),
+            path: path.to_string_lossy().into(),
+            title: format!("song {video_id}"),
+            artist: "Artist".into(),
+            album: "Album".into(),
+            duration_secs: 200,
+            cover: cover.map(|c| c.to_string_lossy().into()),
+            itag: 140,
+            size_bytes: 5,
+            created_at: 1,
+        }
+    }
+
+    #[test]
+    fn remove_takes_the_row_the_file_the_empty_album_and_our_cover() {
+        let root = scratch("remove");
+        let album = root.join("Artist").join("Album");
+        std::fs::create_dir_all(&album).unwrap();
+        let file = album.join("Song.m4a");
+        std::fs::write(&file, b"bytes").unwrap();
+        let covers = root.join("covers");
+        std::fs::create_dir_all(&covers).unwrap();
+        let cover = covers.join("dl-abc.jpg");
+        std::fs::write(&cover, b"img").unwrap();
+
+        let d = db();
+        d.put_download(&row("abc", &file, Some(&cover)));
+        remove(&d, "abc");
+
+        assert!(d.downloads().is_empty(), "the row is gone");
+        assert!(!file.exists(), "the bytes are gone");
+        assert!(!album.exists(), "the emptied album folder does not linger");
+        assert!(!cover.exists(), "our own cover copy went with it");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn move_all_relocates_files_keeps_the_layout_and_repoints_the_rows() {
+        let old = scratch("move-old");
+        let new = scratch("move-new");
+        let nested = old.join("Artist").join("Album");
+        std::fs::create_dir_all(&nested).unwrap();
+        let one = nested.join("One.m4a");
+        let two = old.join("Artist").join("Two.m4a");
+        std::fs::write(&one, b"1").unwrap();
+        std::fs::write(&two, b"2").unwrap();
+
+        let d = db();
+        d.put_download(&row("1", &one, None));
+        d.put_download(&row("2", &two, None));
+        let moved = move_all(&d, &old, &new);
+
+        assert_eq!(moved, 2, "both files moved");
+        assert!(!one.exists() && !two.exists(), "nothing is left in the old folder");
+        assert!(new.join("Artist").join("Album").join("One.m4a").is_file(), "layout kept");
+        assert!(new.join("Artist").join("Two.m4a").is_file(), "and the album-less one too");
+        for r in d.downloads() {
+            assert!(Path::new(&r.path).starts_with(&new), "the row follows the file: {}", r.path);
+        }
+        let _ = std::fs::remove_dir_all(&old);
+        let _ = std::fs::remove_dir_all(&new);
+    }
+
+    #[test]
+    fn move_all_renames_rather_than_overwriting_a_name_already_at_the_destination() {
+        let old = scratch("clash-old");
+        let new = scratch("clash-new");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        let src = old.join("Song.m4a");
+        std::fs::write(&src, b"mine").unwrap();
+        std::fs::write(new.join("Song.m4a"), b"theirs").unwrap();
+
+        let d = db();
+        d.put_download(&row("x", &src, None));
+        assert_eq!(move_all(&d, &old, &new), 1);
+
+        assert_eq!(
+            std::fs::read(new.join("Song.m4a")).unwrap(),
+            b"theirs",
+            "the file already here wins"
+        );
+        assert_eq!(
+            std::fs::read(new.join("Song (2).m4a")).unwrap(),
+            b"mine",
+            "ours is kept, renamed"
+        );
+        let _ = std::fs::remove_dir_all(&old);
+        let _ = std::fs::remove_dir_all(&new);
+    }
+
+    #[test]
+    fn move_all_lays_a_file_from_outside_the_old_folder_out_like_a_fresh_download() {
+        let old = scratch("orphan-old");
+        let new = scratch("orphan-new");
+        let elsewhere = scratch("orphan-elsewhere");
+        std::fs::create_dir_all(&old).unwrap();
+        let src = elsewhere.join("Song.m4a");
+        std::fs::write(&src, b"bytes").unwrap();
+
+        let d = db();
+        d.put_download(&row("orphan", &src, None)); // artist "Artist", album "Album"
+        assert_eq!(move_all(&d, &old, &new), 1);
+
+        let want = new.join("Artist").join("Album").join("song orphan.m4a");
+        assert!(want.is_file(), "kept Artist/Album/Title instead of flattening: {want:?}");
+        assert!(!src.exists(), "left the folder it was in");
+        assert_eq!(d.downloads()[0].path, want.to_string_lossy(), "the row follows it");
+        for p in [&old, &new, &elsewhere] {
+            let _ = std::fs::remove_dir_all(p);
+        }
+    }
 }

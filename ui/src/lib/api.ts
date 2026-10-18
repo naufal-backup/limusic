@@ -913,7 +913,10 @@ export const getDownloads = () => invoke<DownloadRecord[]>('get_downloads');
 export const removeDownload = (videoId: string) =>
 	invoke<DownloadRecord[]>('remove_download', { videoId });
 export const getDownloadDir = () => invoke<string>('get_download_dir');
-export const setDownloadDir = (path: string) => invoke<string>('set_download_dir', { path });
+/** Point downloads at another folder, moving what's already saved into it. Resolves with the new
+ *  folder and how many files moved. */
+export const setDownloadDir = (path: string) =>
+	invoke<{ dir: string; moved: number }>('set_download_dir', { path });
 export const openDownloadDir = () => invoke<void>('open_download_dir');
 
 // --- blocked artists (blocked.rs, plan 046) ---------------------------------------------------

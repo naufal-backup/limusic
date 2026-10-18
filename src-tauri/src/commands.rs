@@ -2331,7 +2331,7 @@ pub async fn remove_download(
     state: St<'_>,
     video_id: String,
 ) -> Result<Vec<crate::db::Download>, String> {
-    crate::downloads::remove(state.inner(), &video_id);
+    crate::downloads::remove(&state.db, &video_id);
     Ok(state.db.downloads())
 }
 
@@ -2343,12 +2343,25 @@ pub async fn get_download_dir(state: St<'_>) -> Result<String, String> {
     Ok(dir.to_string_lossy().to_string())
 }
 
-/// Point downloads at another folder. Persisted; the next track lands there, nothing moves.
+/// What changing the folder did: the folder now in force, and how many saved files moved into it.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadDir {
+    pub dir: String,
+    pub moved: usize,
+}
+
+/// Point downloads at another folder, taking what is already saved along to it. The move is
+/// best-effort per file and the setting is applied either way, so a file that could not be moved
+/// stays where it is and keeps its row instead of vanishing from the view.
 #[tauri::command]
-pub async fn set_download_dir(state: St<'_>, path: String) -> Result<String, String> {
+pub async fn set_download_dir(state: St<'_>, path: String) -> Result<DownloadDir, String> {
     crate::downloads::usable_dir(&path)?;
-    state.db.set_setting("download_dir", path.trim());
-    Ok(path)
+    let dir = path.trim().to_string();
+    let old = crate::downloads::dir(&state.app, &state.db);
+    let moved = crate::downloads::move_all(&state.db, &old, std::path::Path::new(&dir));
+    state.db.set_setting("download_dir", &dir);
+    Ok(DownloadDir { dir, moved })
 }
 
 #[tauri::command]

@@ -84,8 +84,11 @@ export async function pickDownloadDir() {
 	});
 	if (typeof picked !== 'string') return;
 	try {
-		dl.dir = await api.setDownloadDir(picked);
-		toast.success(t('downloads.folder_set'));
+		const { dir, moved } = await api.setDownloadDir(picked);
+		dl.dir = dir;
+		toast.success(moved ? t('downloads.moved', { count: moved }) : t('downloads.folder_set'));
+		// The saved files followed the folder, so the paths playback reads changed with them.
+		void refreshDownloads();
 	} catch (e) {
 		toast.error(String(e));
 	}

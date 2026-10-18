@@ -1286,6 +1286,7 @@
 		"change_folder": "Change folder",
 		"pick_folder": "Choose a folder for downloads",
 		"folder_set": "Downloads will go here",
+		"moved": "Moved {count} already-saved file(s) here",
 		"already": "That track is already downloaded.",
 		"empty": "Nothing downloaded yet. Use a track’s menu to save it here.",
 		"hint": "Files are saved on this device and play like any other track. YouTube Music is only asked for the audio.",
