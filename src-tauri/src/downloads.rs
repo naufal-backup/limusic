@@ -217,7 +217,10 @@ pub fn start(state: &Arc<AppState>, songs: Vec<SongItem>) -> Snapshot {
         }
     }
     let gen = job.gen;
-    let snap = Snapshot::of(&job.items, job.working || job.items.iter().any(|e| e.status == Status::Queued));
+    let snap = Snapshot::of(
+        &job.items,
+        job.working || job.items.iter().any(|e| e.status == Status::Queued),
+    );
     drop(g);
     spawn_worker(state.clone(), gen);
     snap
@@ -366,13 +369,7 @@ async fn download_one(
     // purpose: a cached URL was chosen for streaming (Opus), and reusing it would defeat the point.
     let data = state
         .orchestrator
-        .resolve(
-            &song.video_id,
-            song.is_upload,
-            state.quality(),
-            &state.disabled_clients(),
-            true,
-        )
+        .resolve(&song.video_id, song.is_upload, state.quality(), &state.disabled_clients(), true)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -400,7 +397,16 @@ async fn download_one(
     // filename is the fallback when the tags are silent (local.rs `split_filename`) — so only those
     // carry "Artist - ".
     let untagged = tag_type_for(ext).is_none();
-    let target = unique_target(&state.db, root, &artist, &song.album, &song.title, ext, untagged, &song.video_id);
+    let target = unique_target(
+        &state.db,
+        root,
+        &artist,
+        &song.album,
+        &song.title,
+        ext,
+        untagged,
+        &song.video_id,
+    );
     if let Some(parent) = target.parent() {
         tokio::fs::create_dir_all(parent).await.map_err(|e| e.to_string())?;
     }
@@ -644,12 +650,8 @@ fn parse_duration(s: Option<&str>) -> i64 {
 
 /// Delete one download: the row and the bytes. The cover copy goes with it when it is ours.
 pub fn remove(state: &Arc<AppState>, video_id: &str) {
-    let cover = state
-        .db
-        .downloads()
-        .into_iter()
-        .find(|d| d.video_id == video_id)
-        .and_then(|d| d.cover);
+    let cover =
+        state.db.downloads().into_iter().find(|d| d.video_id == video_id).and_then(|d| d.cover);
     if let Some(path) = state.db.delete_download(video_id) {
         let _ = std::fs::remove_file(&path);
         // An empty Artist/Album left behind would show up as an album in Local Music.
@@ -658,10 +660,7 @@ pub fn remove(state: &Arc<AppState>, video_id: &str) {
         }
     }
     if let Some(cover) = cover {
-        if Path::new(&cover)
-            .file_name()
-            .is_some_and(|n| n.to_string_lossy().starts_with("dl-"))
-        {
+        if Path::new(&cover).file_name().is_some_and(|n| n.to_string_lossy().starts_with("dl-")) {
             let _ = std::fs::remove_file(cover);
         }
     }
@@ -688,7 +687,14 @@ pub fn open_dir(path: &Path) -> Result<(), String> {
         use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
         let file = HSTRING::from(p.as_str());
         let h = unsafe {
-            ShellExecuteW(None, windows::core::w!("open"), &file, PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL)
+            ShellExecuteW(
+                None,
+                windows::core::w!("open"),
+                &file,
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            )
         };
         if h.0 as isize > 32 {
             Ok(())

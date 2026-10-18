@@ -385,7 +385,9 @@ impl Orchestrator {
 
             let Some(streaming) = resp.streaming_data.as_ref() else { continue };
             let Some(expires) = streaming.expires_in_seconds else { continue };
-            let Some(format) = find_format_preferring(streaming, quality, prefer_mp4) else { continue };
+            let Some(format) = find_format_preferring(streaming, quality, prefer_mp4) else {
+                continue;
+            };
             if audio_config_loudness.is_none() {
                 audio_config_loudness = main_loudness(&resp);
             }
