@@ -268,8 +268,9 @@ Windows and macOS instructions live in [docs/BUILD-PLATFORMS.md](docs/BUILD-PLAT
 
 Limusic is free and stays free. If it earned a coffee,
 [ko-fi.com/simohypers](https://ko-fi.com/simohypers) is where to leave one — that is the upstream
-author's, whose work this fork is built on. Fork-specific problems belong on
-[this repo's issues](https://github.com/naufal-backup/limusic-naufal/issues).
+author's, whose work this fork is built on. This is a personal build and keeps no tracker of its own:
+problems that exist upstream too go to [upstream's issues](https://github.com/SimoHypers/limusic/issues),
+which the app's Report button in Settings ▸ About fills in for you.
 
 ---
 
