@@ -244,16 +244,26 @@ pub fn cancel(state: &Arc<AppState>) {
     }
 }
 
+/// Hand the queue to a new worker, if there is anything in it to work on.
+///
+/// The "anything to work on" half is not an optimisation. [`run`] ends by asking for a successor so
+/// a track queued while it was finishing is not stranded — and a worker with an empty queue returns
+/// immediately. Without this check the two call each other forever: a tight loop that holds and
+/// releases `JOB` thousands of times a second, pegs a core, and emits a full snapshot per pass. The
+/// webview drowns in progress events and the click that would clear the job ("Dismiss") never gets
+/// the lock — which is what "the app freezes when I dismiss the download popup" was.
+fn claim_for_worker(job: &mut Job, gen: u64) -> bool {
+    if job.gen != gen || job.working || !job.items.iter().any(|e| e.status == Status::Queued) {
+        return false;
+    }
+    job.working = true;
+    true
+}
+
 fn spawn_worker(state: Arc<AppState>, gen: u64) {
     let spawn = {
         let mut g = JOB.lock().unwrap();
-        match g.as_mut().filter(|j| j.gen == gen) {
-            Some(j) if !j.working => {
-                j.working = true;
-                true
-            }
-            _ => false,
-        }
+        g.as_mut().is_some_and(|j| claim_for_worker(j, gen))
     };
     if !spawn {
         return;
@@ -919,5 +929,61 @@ mod tests {
         for p in [&old, &new, &elsewhere] {
             let _ = std::fs::remove_dir_all(p);
         }
+    }
+
+    /// A job with one entry per status and nothing else filled in: the shape `claim_for_worker`
+    /// reads, so the rule that decides whether a worker starts is testable without an `AppState`.
+    fn job(gen: u64, working: bool, statuses: &[Status]) -> Job {
+        Job {
+            gen,
+            cancel: Arc::new(AtomicBool::new(false)),
+            working,
+            items: statuses
+                .iter()
+                .enumerate()
+                .map(|(i, status)| Entry {
+                    song: MiniSong {
+                        video_id: format!("v{i}"),
+                        title: format!("song {i}"),
+                        artists: "Artist".into(),
+                        album: "Album".into(),
+                        duration_secs: 200,
+                        is_upload: false,
+                        thumbnail: None,
+                    },
+                    status: *status,
+                    progress: 0.0,
+                    error: None,
+                })
+                .collect(),
+            last_emit: None,
+        }
+    }
+
+    /// The loop behind "the app freezes when I dismiss the download popup": `run` ends by asking for
+    /// a successor so a track queued while it was finishing is not stranded, and a worker that finds
+    /// an empty queue returns at once. Claiming the queue with nothing queued made those two spawn
+    /// each other forever, pegging a core and flooding the webview until nothing answered.
+    #[test]
+    fn a_drained_job_never_asks_for_another_worker() {
+        let mut drained = job(7, false, &[Status::Done, Status::Failed, Status::Cancelled]);
+        assert!(!claim_for_worker(&mut drained, 7), "nothing queued is nothing to spawn");
+        assert!(!drained.working, "and no worker is recorded as owning the queue");
+
+        let mut empty = job(7, false, &[]);
+        assert!(!claim_for_worker(&mut empty, 7), "a job with no tracks at all is not work either");
+
+        let mut queued = job(7, false, &[Status::Done, Status::Queued]);
+        assert!(
+            claim_for_worker(&mut queued, 7),
+            "a track queued while finishing needs a successor"
+        );
+        assert!(queued.working, "the successor owns the queue");
+
+        // One owner per queue, and only for the run that asked for it.
+        assert!(!claim_for_worker(&mut queued, 7), "one worker at a time");
+        let mut other = job(8, false, &[Status::Queued]);
+        assert!(!claim_for_worker(&mut other, 7), "not another job's queue");
+        assert!(!other.working);
     }
 }
