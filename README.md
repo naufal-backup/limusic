@@ -6,13 +6,18 @@
 
 **A native desktop YouTube Music client. Rust + Tauri, ad-free, no Electron.**
 
+> **This is a fork.** `limusic-naufal` is a personal build of
+> [SimoHypers/limusic](https://github.com/SimoHypers/limusic) that adds offline downloads. The
+> player, the documentation and everything below except that one feature are the
+> [original project's](https://github.com/SimoHypers/limusic) work — its
+> [website](https://simohypers.github.io/limusic/) and
+> [upstream releases](https://github.com/SimoHypers/limusic/releases/latest) are the main channel.
+
 <p align="center">
-  <a href="https://github.com/SimoHypers/limusic/releases/latest"><img alt="GitHub Downloads" src="https://img.shields.io/github/downloads/SimoHypers/limusic/total?style=for-the-badge&label=DOWNLOADS&color=a4c400"></a>
-  <a href="https://github.com/SimoHypers/limusic/releases/latest"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/SimoHypers/limusic?display_name=release&style=for-the-badge&color=a10935"></a>
-  <img alt="License" src="https://img.shields.io/github/license/SimoHypers/limusic?style=for-the-badge&color=1881cc">
-  <a href="https://hosted.weblate.org/engage/limusic/"><img alt="Translation status" src="https://img.shields.io/weblate/progress/limusic?server=https%3A%2F%2Fhosted.weblate.org&style=for-the-badge&label=TRANSLATED&color=6a3fb5"></a>
-  <a href="https://simohypers.github.io/limusic/"><img alt="Website" src="https://img.shields.io/badge/WEBSITE-limusic-e5486e?style=for-the-badge"></a>
-  <a href="https://ko-fi.com/simohypers"><img alt="Support on Ko-fi" src="https://img.shields.io/badge/KO--FI-support-ff5e5b?style=for-the-badge&logo=kofi&logoColor=white"></a>
+  <a href="https://github.com/naufal-backup/limusic-naufal/releases/latest"><img alt="GitHub Downloads" src="https://img.shields.io/github/downloads/naufal-backup/limusic-naufal/total?style=for-the-badge&label=DOWNLOADS&color=a4c400"></a>
+  <a href="https://github.com/naufal-backup/limusic-naufal/releases/latest"><img alt="GitHub Release" src="https://img.shields.io/github/v/release/naufal-backup/limusic-naufal?display_name=release&style=for-the-badge&color=a10935"></a>
+  <img alt="License" src="https://img.shields.io/github/license/naufal-backup/limusic-naufal?style=for-the-badge&color=1881cc">
+  <a href="https://github.com/SimoHypers/limusic/releases/latest"><img alt="Upstream" src="https://img.shields.io/badge/UPSTREAM-SimoHypers%2Flimusic-e5486e?style=for-the-badge"></a>
   <br>
   <img alt="Linux" src="https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black">
   <img alt="Windows" src="https://img.shields.io/badge/Windows-0078D6?style=for-the-badge&logoColor=white">
@@ -30,9 +35,31 @@ YouTube Music client, and grew from there.
 
 ---
 
+## What This Fork Adds
+
+**Offline downloads.** A track's menu has a Download entry that saves it to disk with its title,
+artist, album and cover art written into the file, filed as `Artist/Album/Title.ext`. The stream is
+asked for as MP4/AAC first, so other players can read those tags; a track YouTube only offers as
+Opus gets saved untagged as `Artist - Title.ext`. Either way it is an ordinary audio file, so adding
+the folder to Local Music makes it a library track like any other, and it plays with no network at
+all. The sidebar's Downloads view is the one list of what is on disk.
+
+- **One at a time, with progress**: tracks queue behind a single background job, shown in the
+  Downloads dialog with **Stop** while it runs and **Dismiss** once it is finished.
+- **Change folder moves everything**: picking a new destination moves every file already saved into
+  it, keeping the `Artist/Album/Title` layout, and repoints the saved records at the new paths.
+- **Delete from disk**: removing a row deletes the file, not just the record.
+
+Everything else in the app — and in the rest of this README — is upstream's; see the
+[original project](https://github.com/SimoHypers/limusic) for its documentation and support.
+
+---
+
 ## Features
 
 - **Ad-free playback**: streams come straight from YouTube's API, ads never do
+- **Offline downloads** *(this fork)*: save any track from its menu and keep it, tagged and playable
+  offline — see [What This Fork Adds](#what-this-fork-adds) above
 - **Search & browse**: songs, albums, artists, playlists and the YTM home feed, with results previewing as you type
 - **Sign in** with your YouTube Music account: in-app Google login or cookie-paste, several accounts at once with switching between them
 - **Your library**: playlists, liked songs, saved albums and artists, your uploads, and write actions (like, add to playlist, create/edit/delete playlists including cover art, subscribe, save to library)
@@ -74,10 +101,13 @@ YouTube Music client, and grew from there.
 <h2 align="center">Download & Install</h2>
 
 <p align="center">
-  <a href="https://github.com/SimoHypers/limusic/releases/latest">
+  <a href="https://github.com/naufal-backup/limusic-naufal/releases/latest">
     <img src="https://img.shields.io/badge/GitHub_Releases-100000?style=for-the-badge&logo=github&logoColor=white" height="40">
   </a>
 </p>
+
+Those are this fork's builds: the same files as upstream's, plus the offline downloads above, signed
+with this fork's own key and self-updating from `naufal-backup/limusic-naufal`.
 
 | Platform | File | Notes |
 |---|---|---|
@@ -89,7 +119,8 @@ YouTube Music client, and grew from there.
 | macOS (Apple Silicon) | `.dmg` | Self-updating. Unsigned, so the first launch needs `xattr -dr com.apple.quarantine /Applications/limusic.app` |
 | macOS (Intel) | none | Build from source, see [docs/BUILD-PLATFORMS.md](docs/BUILD-PLATFORMS.md) |
 
-Community-maintained repositories, packaged and updated by their maintainers rather than by this project:
+The upstream project is also packaged and updated for some distributions by community maintainers.
+Those packages follow upstream — they do not carry this fork's download feature:
 
 | Platform | Source | Notes |
 |---|---|---|
@@ -176,8 +207,10 @@ suggestion.
 
 ## Translations
 
-Limusic is translated on [Weblate](https://hosted.weblate.org/engage/limusic/),
-who host it free for libre projects.
+Limusic is translated on [Weblate](https://hosted.weblate.org/engage/limusic/), who host it free for
+libre projects. That project belongs to upstream, and the translations in this fork are simply the
+ones it has finished — translation work goes there, not here, and this fork keeps no catalogs of its
+own.
 
 <a href="https://hosted.weblate.org/engage/limusic/">
   <img src="https://hosted.weblate.org/widget/limusic/ui/multi-auto.svg" alt="Translation status">
@@ -231,22 +264,12 @@ Windows and macOS instructions live in [docs/BUILD-PLATFORMS.md](docs/BUILD-PLAT
 
 ---
 
-## Star History
-
-<a href="https://www.star-history.com/?repos=simohypers%2Flimusic&type=date&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=simohypers/limusic&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=simohypers/limusic&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=simohypers/limusic&type=date&legend=top-left" />
- </picture>
-</a>
-
----
-
 ## Support
 
 Limusic is free and stays free. If it earned a coffee,
-[ko-fi.com/simohypers](https://ko-fi.com/simohypers) is where to leave one.
+[ko-fi.com/simohypers](https://ko-fi.com/simohypers) is where to leave one — that is the upstream
+author's, whose work this fork is built on. Fork-specific problems belong on
+[this repo's issues](https://github.com/naufal-backup/limusic-naufal/issues).
 
 ---
 
@@ -263,4 +286,6 @@ this project belong to their respective owners.
 
 ## License
 
-[GPL-3.0](LICENSE)
+[GPL-3.0](LICENSE), the license upstream uses. Limusic itself is the work of its original authors at
+[SimoHypers/limusic](https://github.com/SimoHypers/limusic); this fork builds on it and stays under
+the same terms.
